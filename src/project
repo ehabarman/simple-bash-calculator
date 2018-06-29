@@ -1,0 +1,425 @@
+#!/bin/bash
+
+main(){ #main function:read equations from given file and send eqs one by one to stackCalclator
+	x=1
+	while read -r line || [[ -n "$line" ]]; do
+  		stackCalculator $line $x
+	done < "$1"
+	
+	gedit equations.txt
+	gedit invalid.txt	
+	gedit valid.txt
+
+}
+stackCalculator(){ #will calculate equations and put result in invalid or valid file
+
+	
+	if [ ${#1} -gt 1 ];then 
+		
+		echo "equation $2 read from file: $1" >> equations.txt # print given equation
+		x=$((x+1))
+		checkValidation $1 #check if given equation is valid
+		flag=$?
+	
+		if [ $flag -eq 1 ];then #if equation is valid
+		postfix=""	
+		inToPost $1	#transform equation from infix to postfix	
+		zeroFlag=0	
+		result=0	
+		calcPostfix "$postfix"
+		
+		
+		if [ $zeroFlag -eq 0 ];then
+			echo "equation: $1">> valid.txt
+			echo "postfix:$postfix		result:$result" >> valid.txt	
+		else
+			echo "equation: $1">> valid.txt
+			echo "postfix:$postfix		result:divide by zero equation" >> valid.txt
+					
+		fi	
+		
+		echo "_______________________________________________________________________">>valid.txt
+	fi
+	fi
+}
+
+calcPostfix(){ #calculate passed postfix equation
+
+	local s=$1
+	local l=${#s}
+	local i=0
+	stackk=""
+	local operand=""
+	local nextChar=""
+	while [ $i -lt $l ];do #move thorugh postfix equation
+		operand=""
+		nextChar=${s:$i:1}
+		if grep "[0-9]"	<<< "$nextChar" > /dev/null ;then #if number is found put it in operand then push to stack
+			
+			operand=$operand$nextChar
+			i=$((i+1))
+			while [ $i -lt $l ];do
+				nextChar=${s:$i:1}
+				if [ "$nextChar" == " " ];then
+
+					pushnumber "$operand"
+					i=$((i+1))
+					break
+				fi
+				operand=$operand$nextChar
+				i=$((i+1))
+	
+			done
+			continue
+		fi
+
+		if grep "[-,+,*,/]"<<< "$nextChar" > /dev/null ;then #if op is found do the following :
+			
+			if [ "$nextChar" == "-" ];then # make sure - is op and not sign here
+				if [ "${s:$((i+1)):1}" != " " ];then
+					operand=$operand$nextChar
+					while [ "${s:$((i+1)):1}" != " " ];do
+						i=$((i+1))
+						nextChar=${s:$i:1}
+						operand=$operand$nextChar
+					done			
+					pushnumber "$operand"
+					i=$((i+2))
+					continue
+				fi			
+			fi	
+			num=0
+			popnumber
+			num1=$num
+			popnumber
+			num2=$num
+			if [ $num1 -eq 0 ];then #make sure first number is not 0 when we have / op
+				if [ "$nextChar" == "/" ];then
+					zeroFlag=1
+					return
+				fi
+			fi
+			
+			case "$nextChar"  # do the mathmatical operation
+			in
+				+)num2=$(expr $num2 + $num1 );pushnumber "$num2";;
+				-)num2=$(expr $num2 - $num1 );pushnumber "$num2";;
+				/)num2=$(expr $num2 / $num1 );pushnumber "$num2";;
+				*)num2=$(expr $num2 \* $num1);pushnumber "$num2";;
+			esac
+		fi
+		
+	
+		
+		i=$((i+2))
+	done
+	popnumber # last number instack is final result
+	result=$num
+}
+
+pushnumber(){
+
+local whiteSpace=" "
+local st=$1	
+	if [ ${#stackk} -gt 0 ];then
+		st=$whiteSpace$st
+		stackk=$stackk$st
+
+	else
+		stackk=$stackk$st
+
+	fi
+}
+
+popnumber(){
+
+
+	local finish=${#stackk} #length of stack
+	finish=$((finish-1)) #index of last char
+	local start=$finish
+	while [ "${stackk:$((start-1)):1}" != " " ];do
+
+		if [ $start -lt 1 ];then
+			break
+		fi
+		start=$((start-1))
+		
+	done
+	local l=$(expr $finish - $start )
+	num=${stackk:$start:$((l+1))}
+	
+	if [ $start -gt 0 ];then
+		
+		stackk=${stackk:0:$((start-1))}
+	else
+		stackk=""
+	fi
+	return "$num"
+
+}
+
+inToPost(){ #find postfix of given eq
+	whiteSpace=" "
+	infix=$1
+	local length=${#1}
+	stack=""
+	local i=0
+	local nextchar=""
+	while [ $i -lt $length ];do #move throught infix form to make it postfix
+	
+		nextChar=${infix:$i:1} #move to the next char
+		
+		if grep "[0-9]"	<<< "$nextChar" > /dev/null ;then #if given char is number added to postfix from
+		
+			postfix=$postfix$nextChar
+			
+			if [ $((i+1)) -eq $length ];then #if we ended eq with number not )
+				
+				postfix=$postfix$whiteSpace
+				pop "$stack"
+				break
+			fi
+				
+			if grep "[0-9]" <<<"${infix:$((i+1)):1}" ;then #if next char is num
+				i=$((i+1))
+				continue
+			fi
+			#if not then insert white space to indicate the end of number
+			postfix=$postfix$whiteSpace
+			i=$((i+1))
+			continue	
+		fi
+
+		if grep "[-,*,/,+]" <<< "$nextChar" > /dev/null ;then #if given char is op use stack
+			
+			stackLength=${#stack}
+			
+			if [ "$nextChar" == '-' ];then #special case for -op in case its used as sign in equation
+
+				if [ $i -eq 0 ];then
+					postfix=$postfix$nextChar
+					i=$((i+1))
+					continue
+				fi
+				if grep "[^),0-9]" <<< "${infix:$((i-1)):1}" > /dev/null ;then
+					
+					postfix=$postfix$nextChar
+					i=$((i+1))
+					continue				
+				fi	
+			fi
+			
+			if [ $stackLength -eq 0 ] ;then #if stack is empty add op
+				
+				push "$nextChar"
+				i=$((i+1))
+				continue
+			fi
+			
+	
+		
+			
+			#get priority of current op and top of stack
+			opRank "$nextChar"
+			op1=$?
+			opRank "${stack:$((stackLength-1)):1}"
+			op2=$?
+			
+
+
+			if [ $op2 -ge $op1 ];then #if stack has equal or higher priority then added to postfix
+				
+				if [ "${stack:$((stackLength-1)):1}" != "(" ];then
+					pop "$stack"
+					push "$nextChar"
+					i=$((i+1))
+					continue
+				fi 
+			fi
+				push "$nextChar"
+				i=$((i+1))
+				continue 
+		fi	
+		
+
+		if grep "[(]"	<<< "$nextChar" > /dev/null ;then #add ( to stack
+			
+			push "$nextChar"	
+			i=$((i+1))		
+			continue		
+		fi
+		
+		if grep "[)]"	<<< "$nextChar" > /dev/null ;then #if we get ) then start poping until find (
+			
+			stackLength=${#stack}
+
+			while [ "$stackLength" -ge 2 ];do
+				
+				if [ "${stack:$((stackLength-1)):1}" == "(" ];then
+					break
+				fi
+				pop "$stack"
+				stackLength=${#stack}
+			done
+			if [ $stackLength -eq 1 ];then
+						
+			stack=""
+			i=$((i+1))		
+			continue
+			fi
+			stack=${stack:0:$((stackLength-1))} #remove ( from stack with out adding it to postfix
+			i=$((i+1))		
+			continue
+		
+		fi		
+		
+	done
+	while [ ${#stack} -gt 0 ];do #to pop what left in stack
+		pop "$stack"
+	done
+	postfixLength=${#postfix}
+	postfix=${postfix:0:$((postfixLength-1))}
+}	
+
+pop(){ #pop ops from stack and pot in postfix
+	
+	local l=${#1}
+	local s=$1
+	local top=${s:$((l-1)):1}
+	postfix=$postfix$top
+	postfix=$postfix$whiteSpace
+	if [ $l -ge 1 ];then
+	stack=${s:0:$((l-1))}
+	fi
+}
+
+push(){ #push given op to stack
+	stack=$stack$1
+}
+
+opRank(){ #return rank of given op
+
+case "$1"
+in
+[+,-]) return 1;;
+[*,/]) return 2;;
+*) return 3;;
+
+
+esac
+
+}
+
+checkValidation(){ #contains 3 stages of tests
+		   #will return 0 for invalid quations
+		   #will return 1 for valid equations
+
+	
+	
+	# stage 1: check validity of used chars in equation	
+	if grep '[^-,+,*,/,0-9,(,)]' <<< $1 > /dev/null
+	then
+		echo "$1		invalid chars">>invalid.txt
+		return 0
+	fi
+	
+	if grep ',' <<< $1 > /dev/null
+	then
+		echo "$1		invalid chars">>invalid.txt
+		return 0
+	fi
+	# stage 1 over
+	#--------------------------------------------------------------------------------
+
+	# stage 2: check parenthesis and length
+	#${string:i:b} will return substring from i to i+b starting from index 0
+	#${#string} will return length of a string
+	local length=${#1}
+	local i=0
+	local count=0
+	local string=$1
+	
+	while [ $i -lt $length ];do
+		
+		local nextChar=${string:$i:1}
+		
+		if [ "$nextChar" == "(" ]
+		then 
+			count=$(expr $count + 1)
+		fi
+		
+		if [ "$nextChar" == ")" ]
+		then
+			count=$(expr $count - 1)
+			if [ $count -lt 0 ]
+			then
+		   	
+				echo "$1		invalid parenthesis">>invalid.txt
+				return 0
+			fi
+		fi
+
+		i=$(expr $i + 1)		
+
+	done
+	
+	if [ $count -gt 0 ]
+	then
+		   	
+		echo "$1		invalid parenthesis">>invalid.txt
+		return 0
+	fi
+	#stage 2 over
+	#--------------------------------------------------------------------------------
+	#stage 3: check operations permutations
+	
+	if grep '^[*,/,+,)]' <<< $1 > /dev/null # first char in eq must be [0-9] or [(] or[-]
+	then
+		echo "$1		invalid operations order">>invalid.txt
+		return 0
+	fi
+	
+	if grep '[*,/,+,(,-]$' <<< $1 > /dev/null # last char in eq must be [0-9] or [)]
+	then
+		echo "$1		invalid operations order">>invalid.txt
+		return 0
+	fi
+	
+	
+	if grep "[-,(,*,+,/][*,+,),/]" <<< $1 > /dev/null #check right of the following ops
+	then
+		echo "$1		invalid operations order">>invalid.txt
+		return 0
+	fi
+	
+	if grep "[)][(,0-9]" <<< $1 > /dev/null # check right of the ) op
+	then
+		echo "$1		invalid operations order">>invalid.txt
+		return 0
+	fi
+	
+	if grep "[0-9][(]" <<< $1 > /dev/null # check right of the [0-9]
+	then
+		echo "$1		invalid operations order">>invalid.txt
+		return 0
+	fi
+	
+	
+	
+	#stage 3 over
+	#--------------------------------------------------------------------------------
+	#finally if passed all stages then return 1
+	
+	return 1
+}
+
+#run script
+
+echo "invalid equations:"> invalid.txt
+echo "">>invalid.txt
+echo "result is:">valid.txt
+echo "">>valid.txt
+echo "equations read from file:">equations.txt
+echo "">>equations.txt
+main "$1"
+exit 0
